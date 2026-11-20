@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from typing import Any
 
 import joblib
@@ -25,13 +26,23 @@ class GCSArtifactStore:
             latest.txt           ← contains the most-recent run_id
     """
 
+    def __init__(self) -> None:
+        """Create the store with no Cloud Storage client yet (built on first use)."""
+        self._client: storage.Client | None = None
+
+    def _storage(self) -> storage.Client:
+        # One client per store instance: the API reuses the instance, so requests share it.
+        if self._client is None:
+            self._client = storage.Client()
+        return self._client
+
     def _bucket_name(self) -> str:
         return get_settings().gcp_bucket_artifacts
 
     def save(self, model: Any, run_id: str) -> str:
         """Serialize and upload model to GCS; update latest.txt."""
         bucket_name = self._bucket_name()
-        bucket = storage.Client().bucket(bucket_name)
+        bucket = self._storage().bucket(bucket_name)
 
         buffer = io.BytesIO()
         joblib.dump(model._model, buffer)
@@ -40,15 +51,37 @@ class GCSArtifactStore:
         bucket.blob("latest.txt").upload_from_string(run_id)
         return f"gs://{bucket_name}/{model_key}"
 
+    def latest_run_id(self) -> str | None:
+        """Return the run id stored in latest.txt, or ``None`` when it is absent."""
+        latest = self._storage().bucket(self._bucket_name()).blob("latest.txt")
+        if not latest.exists():
+            return None
+        return latest.download_as_text().strip()
+
+    def save_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+        """Upload metrics as <run_id>/metrics.json."""
+        bucket = self._storage().bucket(self._bucket_name())
+        bucket.blob(f"{run_id}/metrics.json").upload_from_string(
+            json.dumps(metrics, indent=2), content_type="application/json"
+        )
+
+    def load_metrics(self, run_id: str) -> dict[str, Any]:
+        """Download <run_id>/metrics.json, or return ``{}`` when it is missing."""
+        blob = (
+            self._storage().bucket(self._bucket_name()).blob(f"{run_id}/metrics.json")
+        )
+        if not blob.exists():
+            return {}
+        return json.loads(blob.download_as_text())
+
     def load(self, model: Any, run_id: str | None) -> None:
         """Download and deserialize model from GCS into model._model."""
-        bucket = storage.Client().bucket(self._bucket_name())
+        bucket = self._storage().bucket(self._bucket_name())
         if run_id is None:
-            latest = bucket.blob("latest.txt")
-            if not latest.exists():
+            run_id = self.latest_run_id()
+            if run_id is None:
                 msg = "latest.txt not found in artifacts bucket; train a model first"
                 raise FileNotFoundError(msg)
-            run_id = latest.download_as_text().strip()
         payload = bucket.blob(f"{run_id}/model.joblib").download_as_bytes()
         model._model = joblib.load(io.BytesIO(payload))
         model._run_id = run_id

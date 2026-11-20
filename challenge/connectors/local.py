@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -98,13 +99,32 @@ class LocalArtifactStore:
         (self._root() / "latest.txt").write_text(run_id)
         return str(artifact_path)
 
+    def latest_run_id(self) -> str | None:
+        """Return the run id stored in latest.txt, or ``None`` when it is absent."""
+        latest = self._root() / "latest.txt"
+        if not latest.is_file():
+            return None
+        return latest.read_text().strip()
+
+    def save_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+        """Write metrics to <ARTIFACTS_DIR>/<run_id>/metrics.json."""
+        run_dir = self._root() / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+
+    def load_metrics(self, run_id: str) -> dict[str, Any]:
+        """Read <ARTIFACTS_DIR>/<run_id>/metrics.json, or ``{}`` when it is missing."""
+        path = self._root() / run_id / "metrics.json"
+        if not path.is_file():
+            return {}
+        return json.loads(path.read_text())
+
     def load(self, model: Any, run_id: str | None) -> None:
         """Load model from <ARTIFACTS_DIR>/<run_id>/model.joblib into model._model."""
         if run_id is None:
-            latest = self._root() / "latest.txt"
-            if not latest.is_file():
+            run_id = self.latest_run_id()
+            if run_id is None:
                 msg = f"No latest.txt found in {self._root()}; train a model first"
                 raise FileNotFoundError(msg)
-            run_id = latest.read_text().strip()
         model._model = joblib.load(self._root() / run_id / "model.joblib")
         model._run_id = run_id

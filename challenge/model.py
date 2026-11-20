@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import pandas as pd
 import xgboost as xgb
@@ -198,6 +199,10 @@ class GCPModelMixin:
             Path or URI of the saved artifact.
         """
         return self._store.save(self, run_id)
+
+    def save_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+        """Persist evaluation metrics for a run via the injected ArtifactStore."""
+        self._store.save_metrics(run_id, metrics)
 
     def load(self, bucket: str = "", run_id: str | None = None) -> None:
         """Restore a model via the injected ArtifactStore.

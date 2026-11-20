@@ -67,3 +67,15 @@ class ArtifactStore(Protocol):
     def load(self, model: Any, run_id: str | None) -> None:
         """Deserialise artifact into model._model; resolve latest when run_id is None."""
         ...
+
+    def latest_run_id(self) -> str | None:
+        """Return the run id recorded as latest, or ``None`` when no model was saved."""
+        ...
+
+    def save_metrics(self, run_id: str, metrics: dict[str, Any]) -> None:
+        """Persist the evaluation metrics of a run next to its model."""
+        ...
+
+    def load_metrics(self, run_id: str) -> dict[str, Any]:
+        """Return the metrics of a run, or an empty dict when none were saved."""
+        ...
