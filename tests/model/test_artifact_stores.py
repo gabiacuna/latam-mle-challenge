@@ -224,7 +224,9 @@ def test_gcs_artifact_store_satisfies_protocol():
 @patch(
     "challenge.connectors.gcs.GCSArtifactStore._bucket_name", return_value="test-bucket"
 )
-def test_gcs_artifact_store_load_raises_when_model_blob_download_fails(mock_bucket_name):
+def test_gcs_artifact_store_load_raises_when_model_blob_download_fails(
+    mock_bucket_name,
+):
     """load() propagates an exception when the model blob download fails."""
     mock_client_cls, mock_bucket = _make_gcs_client_mock()
 
@@ -272,7 +274,9 @@ def test_gcs_csv_client_write_creates_bigquery_client_when_none_injected():
     """write() instantiates a BigQueryClient when no _bq_writer was injected."""
     mock_writer_instance = MagicMock()
     mock_writer_cls = MagicMock(return_value=mock_writer_instance)
-    identifiers = pd.DataFrame({"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [6]})
+    identifiers = pd.DataFrame(
+        {"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [6]}
+    )
 
     with patch("challenge.connectors.bigquery.BigQueryClient", mock_writer_cls):
         GCSCSVClient(blob_name="serving_input.csv").write([1], identifiers)

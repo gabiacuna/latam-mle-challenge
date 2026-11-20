@@ -8,9 +8,8 @@ from challenge.model import DelayModel
 
 
 class TestModel(unittest.TestCase):  # noqa: D101
-
     FEATURES_COLS = [  # noqa: RUF012
-        "OPERA_Latin American Wings", 
+        "OPERA_Latin American Wings",
         "MES_7",
         "MES_10",
         "OPERA_Grupo LATAM",
@@ -19,13 +18,12 @@ class TestModel(unittest.TestCase):  # noqa: D101
         "MES_4",
         "MES_11",
         "OPERA_Sky Airline",
-        "OPERA_Copa Air"
+        "OPERA_Copa Air",
     ]
 
     TARGET_COL = [  # noqa: RUF012
         "delay"
     ]
-
 
     def setUp(self) -> None:
         """Initialize model and load test data."""
@@ -35,10 +33,7 @@ class TestModel(unittest.TestCase):  # noqa: D101
 
     def test_model_preprocess_for_training(self) -> None:
         """Test preprocess returns correct features and target for training."""
-        features, target = self.model.preprocess(
-            data=self.data,
-            target_column="delay"
-        )
+        features, target = self.model.preprocess(data=self.data, target_column="delay")
 
         assert isinstance(features, pd.DataFrame)
         assert features.shape[1] == len(self.FEATURES_COLS)
@@ -48,24 +43,17 @@ class TestModel(unittest.TestCase):  # noqa: D101
         assert target.shape[1] == len(self.TARGET_COL)
         assert set(target.columns) == set(self.TARGET_COL)
 
-
     def test_model_preprocess_for_serving(self) -> None:
         """Test preprocess returns correct features for serving without target."""
-        features = self.model.preprocess(
-            data=self.data
-        )
+        features = self.model.preprocess(data=self.data)
 
         assert isinstance(features, pd.DataFrame)
         assert features.shape[1] == len(self.FEATURES_COLS)
         assert set(features.columns) == set(self.FEATURES_COLS)
 
-
     def test_model_fit(self) -> None:
         """Test model fit trains and meets performance thresholds."""
-        features, target = self.model.preprocess(
-            data=self.data,
-            target_column="delay"
-        )
+        features, target = self.model.preprocess(data=self.data, target_column="delay")
 
         _, features_validation, _, target_validation = train_test_split(
             features, target, test_size=0.33, random_state=42
@@ -89,17 +77,14 @@ class TestModel(unittest.TestCase):  # noqa: D101
         assert report["1"]["recall"] > recall_threshold_1
         assert report["1"]["f1-score"] > f1_threshold_1
 
-
     def test_model_predict(self) -> None:
         """Test predict returns correct format and length."""
-        features = self.model.preprocess(
-            data=self.data
-        )
+        features = self.model.preprocess(data=self.data)
 
-        predicted_targets = self.model.predict(
-            features=features
-        )
+        predicted_targets = self.model.predict(features=features)
 
         assert isinstance(predicted_targets, list)
         assert len(predicted_targets) == features.shape[0]
-        assert all(isinstance(predicted_target, int) for predicted_target in predicted_targets)
+        assert all(
+            isinstance(predicted_target, int) for predicted_target in predicted_targets
+        )

@@ -53,8 +53,12 @@ class TestPipelineTrain(unittest.TestCase):
 
     def test_train_returns_500_on_pipeline_failure(self) -> None:
         """Test that /pipeline/train returns 500 when training pipeline fails."""
-        with patch("challenge.api.api._check_raw_flights", return_value=100), \
-             patch("challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")):
+        with (
+            patch("challenge.api.api._check_raw_flights", return_value=100),
+            patch(
+                "challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")
+            ),
+        ):
             response = self.client.post("/pipeline/train")
         self.assertEqual(response.status_code, 500)
         self.assertIn("failed", response.json()["detail"]["details"])
@@ -64,8 +68,10 @@ class TestPipelineTrain(unittest.TestCase):
         mock_job = MagicMock()
         mock_job.name = "projects/test/locations/us-central1/pipelineJobs/123"
 
-        with patch("challenge.api.api._check_raw_flights", return_value=1000), \
-             patch("challenge.api.api._submit_and_wait", return_value=mock_job):
+        with (
+            patch("challenge.api.api._check_raw_flights", return_value=1000),
+            patch("challenge.api.api._submit_and_wait", return_value=mock_job),
+        ):
             response = self.client.post("/pipeline/train")
 
         self.assertEqual(response.status_code, 200)
@@ -91,8 +97,12 @@ class TestPipelinePredict(unittest.TestCase):
 
     def test_predict_returns_500_on_pipeline_failure(self) -> None:
         """Test that /pipeline/predict returns 500 when serving pipeline fails."""
-        with patch("challenge.api.api._check_model_exists", return_value=True), \
-             patch("challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")):
+        with (
+            patch("challenge.api.api._check_model_exists", return_value=True),
+            patch(
+                "challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")
+            ),
+        ):
             response = self.client.post("/pipeline/predict")
         self.assertEqual(response.status_code, 500)
         self.assertIn("failed", response.json()["detail"]["details"])
@@ -104,13 +114,22 @@ class TestPipelinePredict(unittest.TestCase):
         mock_predictions = {
             "total_predictions": 68206,
             "predictions": [
-                {"OPERA": "Grupo LATAM", "TIPOVUELO": "I", "MES": 6, "predicted_delay": 0}
+                {
+                    "OPERA": "Grupo LATAM",
+                    "TIPOVUELO": "I",
+                    "MES": 6,
+                    "predicted_delay": 0,
+                }
             ],
         }
 
-        with patch("challenge.api.api._check_model_exists", return_value=True), \
-             patch("challenge.api.api._submit_and_wait", return_value=mock_job), \
-             patch("challenge.api.api._query_predictions", return_value=mock_predictions):
+        with (
+            patch("challenge.api.api._check_model_exists", return_value=True),
+            patch("challenge.api.api._submit_and_wait", return_value=mock_job),
+            patch(
+                "challenge.api.api._query_predictions", return_value=mock_predictions
+            ),
+        ):
             response = self.client.post("/pipeline/predict")
 
         self.assertEqual(response.status_code, 200)
@@ -199,7 +218,9 @@ class TestPredictResultsFilters(unittest.TestCase):
 
     def test_results_invalid_mes_returns_422(self):
         """Non-integer mes value returns 422 with an informative detail message."""
-        with patch("challenge.api.api._query_predictions", return_value=self._empty_result):
+        with patch(
+            "challenge.api.api._query_predictions", return_value=self._empty_result
+        ):
             response = self.client.get("/pipeline/predict/results?mes=not_a_number")
         self.assertEqual(response.status_code, 422)
         self.assertIn("mes must be", response.json()["detail"])

@@ -109,7 +109,9 @@ def test_main_gcp_branch_uses_bigquery_and_gcs():
         patch("challenge.training.step_load_data", return_value=_fake_flight_data()),
         patch("challenge.training.step_preprocess", return_value=(features, target)),
         patch("challenge.training.step_train"),
-        patch("challenge.training.step_save", return_value="gs://bucket/run/model.joblib"),
+        patch(
+            "challenge.training.step_save", return_value="gs://bucket/run/model.joblib"
+        ),
     ):
         result = main()
 
