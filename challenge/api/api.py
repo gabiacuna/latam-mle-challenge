@@ -18,7 +18,10 @@ from challenge.api.checks import latest_model_metadata, model_exists, raw_flight
 from challenge.api.jobs import PipelineBusyError, PipelineJob, get_runner
 from challenge.api.predictions import get_repository
 from challenge.api.schemas import (
+    ErrorResponse,
+    HealthResponse,
     ModelMetrics,
+    PipelineFailureResponse,
     PredictionRow,
     PredictResponse,
     ResultsResponse,
@@ -52,7 +55,62 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan)
+API_DESCRIPTION = """
+Control plane for the flight-delay prediction system.
+
+It triggers the training and serving pipelines (Cloud Run Jobs in `gcp` mode,
+in-process in `local` mode) and exposes the stored predictions.
+
+**Typical flow:** `POST /pipeline/train` → `POST /pipeline/predict` →
+`GET /pipeline/predict/results`.
+
+Pipeline endpoints are synchronous: they return only after the job finishes.
+"""
+
+OPENAPI_TAGS = [
+    {"name": "health", "description": "Liveness probe."},
+    {
+        "name": "pipeline",
+        "description": "Trigger the training and serving pipelines and query predictions.",
+    },
+]
+
+app = FastAPI(
+    title="LATAM MLE Flight Delay API",
+    version="1.0.0",
+    description=API_DESCRIPTION,
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
+
+_UNAVAILABLE_RESPONSE = {
+    503: {
+        "model": ErrorResponse,
+        "description": "BigQuery or GCS is unavailable. Retry later.",
+        "content": {
+            "application/json": {
+                "example": {"detail": "BigQuery or GCS is unavailable; try again later"}
+            }
+        },
+    }
+}
+_BUSY_RESPONSE = {
+    409: {
+        "model": ErrorResponse,
+        "description": "Another run of the same pipeline is already in progress.",
+        "content": {
+            "application/json": {
+                "example": {"detail": "training job is already running"}
+            }
+        },
+    }
+}
+_FAILED_RESPONSE = {
+    500: {
+        "model": PipelineFailureResponse,
+        "description": "The pipeline job failed.",
+    }
+}
 
 
 @app.exception_handler(GoogleAPICallError)
@@ -112,13 +170,44 @@ def _run_pipeline(job: PipelineJob) -> Any:
 # --- routes ---
 
 
-@app.get("/health", status_code=200)
-async def get_health() -> dict:
-    """Return liveness status."""
-    return {"status": "ok"}
+@app.get(
+    "/health",
+    status_code=200,
+    tags=["health"],
+    summary="Liveness probe",
+    response_model=HealthResponse,
+)
+async def get_health() -> HealthResponse:
+    """Return liveness status. Does not touch BigQuery, GCS or Cloud Run."""
+    return HealthResponse(status="ok")
 
 
-@app.post("/pipeline/train", status_code=200, response_model=TrainResponse)
+@app.post(
+    "/pipeline/train",
+    status_code=200,
+    response_model=TrainResponse,
+    tags=["pipeline"],
+    summary="Train the delay model",
+    description=(
+        "Runs the training pipeline synchronously and returns the metrics of the new model. "
+        "Requires the `raw_flights` table (BigQuery) or `data/data.csv` (local) to be non-empty. "
+        "Only one training run can execute at a time."
+    ),
+    responses={
+        422: {
+            "model": ErrorResponse,
+            "description": "The raw flights source is empty.",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "raw_flights table is empty"}
+                }
+            },
+        },
+        **_BUSY_RESPONSE,
+        **_FAILED_RESPONSE,
+        **_UNAVAILABLE_RESPONSE,
+    },
+)
 def post_pipeline_train() -> TrainResponse:
     """Trigger the training Cloud Run Job and return model metadata."""
     if _check_raw_flights() == 0:
@@ -133,7 +222,34 @@ def post_pipeline_train() -> TrainResponse:
     )
 
 
-@app.post("/pipeline/predict", status_code=200, response_model=PredictResponse)
+@app.post(
+    "/pipeline/predict",
+    status_code=200,
+    response_model=PredictResponse,
+    tags=["pipeline"],
+    summary="Generate predictions",
+    description=(
+        "Runs the serving pipeline synchronously with the latest trained model, replaces the "
+        "stored predictions and returns the total count plus the first 10 rows. "
+        "Requires a trained model (`POST /pipeline/train` first)."
+    ),
+    responses={
+        422: {
+            "model": ErrorResponse,
+            "description": "No trained model exists yet.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "no trained model found; run /pipeline/train first"
+                    }
+                }
+            },
+        },
+        **_BUSY_RESPONSE,
+        **_FAILED_RESPONSE,
+        **_UNAVAILABLE_RESPONSE,
+    },
+)
 def post_pipeline_predict() -> PredictResponse:
     """Trigger the serving Cloud Run Job and return first 10 predictions."""
     if not _check_model_exists():
@@ -151,13 +267,50 @@ def post_pipeline_predict() -> PredictResponse:
     )
 
 
-@app.get("/pipeline/predict/results", status_code=200, response_model=ResultsResponse)
+@app.get(
+    "/pipeline/predict/results",
+    status_code=200,
+    response_model=ResultsResponse,
+    tags=["pipeline"],
+    summary="List stored predictions",
+    description=(
+        "Returns one page of stored predictions. Filters are comma-separated lists and are "
+        "combined with AND across parameters and OR within a parameter. "
+        "Returns an empty page when no predictions exist yet."
+    ),
+    responses={
+        422: {
+            "model": ErrorResponse,
+            "description": "Invalid query parameter (e.g. non-integer `mes`).",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "mes must be a comma-separated list of integers"
+                    }
+                }
+            },
+        },
+        **_UNAVAILABLE_RESPONSE,
+    },
+)
 def get_prediction_results(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
-    opera: str | None = None,
-    tipovuelo: str | None = None,
-    mes: str | None = None,
+    page: int = Query(1, ge=1, description="1-based page number."),
+    page_size: int = Query(10, ge=1, le=100, description="Rows per page (1-100)."),
+    opera: str | None = Query(
+        None,
+        description="Filter by airline operator. Comma-separated, e.g. `Grupo LATAM,Sky Airline`.",
+        examples=["Grupo LATAM,Sky Airline"],
+    ),
+    tipovuelo: str | None = Query(
+        None,
+        description="Filter by flight type: `I` (international) or `N` (national).",
+        examples=["I"],
+    ),
+    mes: str | None = Query(
+        None,
+        description="Filter by month(s), 1-12. Comma-separated, e.g. `3,6,12`.",
+        examples=["3,6,12"],
+    ),
 ) -> ResultsResponse:
     """Return a paginated page of predictions, optionally filtered by OPERA/TIPOVUELO/MES."""
     try:
