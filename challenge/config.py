@@ -28,6 +28,8 @@ class Settings:
     bq_dataset: str
     bq_raw_table: str
     bq_predictions_table: str
+    cloud_run_training_job: str = ""
+    cloud_run_serving_job: str = ""
 
     def __post_init__(self) -> None:
         """Validate required GCP vars when deployment_mode is 'gcp'."""
@@ -60,6 +62,8 @@ def get_settings() -> Settings:
         bq_dataset=os.environ.get("BQ_DATASET", ""),
         bq_raw_table=os.environ.get("BQ_RAW_TABLE", ""),
         bq_predictions_table=os.environ.get("BQ_PREDICTIONS_TABLE", ""),
+        cloud_run_training_job=os.environ.get("CLOUD_RUN_TRAINING_JOB", ""),
+        cloud_run_serving_job=os.environ.get("CLOUD_RUN_SERVING_JOB", ""),
     )
 
 
