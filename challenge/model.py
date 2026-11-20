@@ -79,6 +79,12 @@ class BaseDelayModel(ABC):
 
     def __init__(self) -> None:
         self._model = None  # fitted XGBClassifier, populated by fit()
+        self._run_id: str | None = None  # run id of the loaded artifact, set by load()
+
+    @property
+    def run_id(self) -> str | None:
+        """Run id of the artifact currently loaded into the model, if any."""
+        return self._run_id
 
     @abstractmethod
     def preprocess(

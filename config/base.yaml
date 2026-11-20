@@ -6,6 +6,7 @@ service_account_id: challenge-sa
 artifact_registry_repo: challenge
 cloud_run:
   training_job: challenge-training
+  serving_job: challenge-serving
   cpu: "2"
   memory: 2Gi
   timeout: 600s

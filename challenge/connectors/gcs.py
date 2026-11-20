@@ -51,6 +51,7 @@ class GCSArtifactStore:
             run_id = latest.download_as_text().strip()
         payload = bucket.blob(f"{run_id}/model.joblib").download_as_bytes()
         model._model = joblib.load(io.BytesIO(payload))
+        model._run_id = run_id
 
 
 class GCSCSVClient:
@@ -71,7 +72,15 @@ class GCSCSVClient:
         payload = bucket.blob(self._blob_name).download_as_bytes()
         return pd.read_csv(io.BytesIO(payload))
 
-    def write(self, predictions: list[int], identifiers: pd.DataFrame) -> None:
+    def write(
+        self,
+        predictions: list[int],
+        identifiers: pd.DataFrame,
+        *,
+        model_run_id: str | None = None,
+    ) -> None:
         """Write predictions to the configured BigQuery predictions table."""
         writer = self._bq_writer or bigquery_connector.BigQueryClient()
-        writer.write(predictions, identifiers)
+        # Forward the run id only when known, so the bare two-argument call still works.
+        extra = {} if model_run_id is None else {"model_run_id": model_run_id}
+        writer.write(predictions, identifiers, **extra)

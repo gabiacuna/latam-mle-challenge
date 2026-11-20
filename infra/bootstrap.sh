@@ -32,8 +32,6 @@ OBJ_SERVE="$(cfg .objects.serving.path)"
 LOCAL_TRAIN="${ROOT}/$(cfg .objects.training.local)"
 LOCAL_SERVE="${ROOT}/$(cfg .objects.serving.local)"
 REPO="$(cfg .artifact_registry_repo)"
-TRAIN_JOB="$(cfg .cloud_run.training_job)"
-IMAGE_TRAIN="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/training:latest"
 LABELS="$(yq -r '.labels | to_entries | map(.key + "=" + .value) | join(",")' "${CFG}")"
 DATASET_LABEL_ARGS=()
 while IFS= read -r kv; do DATASET_LABEL_ARGS+=(--label "${kv}"); done \
@@ -111,30 +109,40 @@ for role in roles/storage.objectViewer roles/artifactregistry.writer roles/loggi
     --member "serviceAccount:${SA_EMAIL}" --role "${role}" --condition=None >/dev/null
 done
 
-echo ">> Artifact Registry and training image"
+echo ">> Artifact Registry"
 gcloud artifacts repositories describe "${REPO}" --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1 \
   || gcloud artifacts repositories create "${REPO}" --repository-format docker \
     --location "${REGION}" --project "${PROJECT_ID}" --labels "${LABELS}"
-BUILD_CFG="$(mktemp)"
-cat > "${BUILD_CFG}" <<YAML
+
+# Both jobs share one runtime env; they differ only in image and job name.
+RUN_ENV="DEPLOYMENT_MODE=gcp,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},GCP_BUCKET_INPUT=${BUCKET_INPUT},GCP_BUCKET_ARTIFACTS=${BUCKET_ARTIFACTS},BQ_DATASET=${DATASET},BQ_RAW_TABLE=${T_RAW},BQ_SERVING_TABLE=${T_SERVING},BQ_PREDICTIONS_TABLE=${T_PRED}"
+
+for svc in training serving; do
+  IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${svc}:latest"
+  JOB="$(cfg ".cloud_run.${svc}_job")"
+
+  echo ">> Building ${svc} image"
+  BUILD_CFG="$(mktemp)"
+  cat > "${BUILD_CFG}" <<YAML
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "Dockerfile.training", "-t", "${IMAGE_TRAIN}", "."]
-images: ["${IMAGE_TRAIN}"]
+    args: ["build", "-f", "Dockerfile.${svc}", "-t", "${IMAGE}", "."]
+images: ["${IMAGE}"]
 options:
   logging: CLOUD_LOGGING_ONLY
 YAML
-gcloud builds submit "${ROOT}" --config "${BUILD_CFG}" --project "${PROJECT_ID}" \
-  --service-account "projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
-rm -f "${BUILD_CFG}"
+  gcloud builds submit "${ROOT}" --config "${BUILD_CFG}" --project "${PROJECT_ID}" \
+    --service-account "projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
+  rm -f "${BUILD_CFG}"
 
-echo ">> Cloud Run job ${TRAIN_JOB}"
-# 'deploy' creates or updates, so re-runs are idempotent.
-gcloud run jobs deploy "${TRAIN_JOB}" --image "${IMAGE_TRAIN}" --region "${REGION}" \
-  --project "${PROJECT_ID}" --service-account "${SA_EMAIL}" \
-  --cpu "$(cfg .cloud_run.cpu)" --memory "$(cfg .cloud_run.memory)" \
-  --task-timeout "$(cfg .cloud_run.timeout)" --max-retries 0 --labels "${LABELS}" \
-  --set-env-vars "DEPLOYMENT_MODE=gcp,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},GCP_BUCKET_INPUT=${BUCKET_INPUT},GCP_BUCKET_ARTIFACTS=${BUCKET_ARTIFACTS},BQ_DATASET=${DATASET},BQ_RAW_TABLE=${T_RAW},BQ_SERVING_TABLE=${T_SERVING},BQ_PREDICTIONS_TABLE=${T_PRED}"
+  echo ">> Cloud Run job ${JOB}"
+  # 'deploy' creates or updates, so re-runs are idempotent.
+  gcloud run jobs deploy "${JOB}" --image "${IMAGE}" --region "${REGION}" \
+    --project "${PROJECT_ID}" --service-account "${SA_EMAIL}" \
+    --cpu "$(cfg .cloud_run.cpu)" --memory "$(cfg .cloud_run.memory)" \
+    --task-timeout "$(cfg .cloud_run.timeout)" --max-retries 0 --labels "${LABELS}" \
+    --set-env-vars "${RUN_ENV}"
+done
 
 cat <<OUT
 

@@ -9,7 +9,7 @@ from typing import Any
 import joblib
 import pandas as pd
 
-_IDENTIFIER_COLS = ["OPERA", "TIPOVUELO", "MES"]
+from challenge.connectors.protocols import build_predictions_frame
 
 
 class LocalCSVClient:
@@ -51,18 +51,26 @@ class LocalCSVClient:
             path = csv_files[0]
         return pd.read_csv(path)
 
-    def write(self, predictions: list[int], identifiers: pd.DataFrame) -> None:
+    def write(
+        self,
+        predictions: list[int],
+        identifiers: pd.DataFrame,
+        *,
+        model_run_id: str | None = None,
+    ) -> None:
         """Write predictions to ``<ARTIFACTS_DIR>/predictions.csv``.
 
         Creates the artifacts directory if it does not exist.
         Output columns: ``OPERA``, ``TIPOVUELO``, ``MES`` (row-aligned with
-        predictions) followed by ``prediction`` (0|1).
+        predictions) followed by ``prediction`` (0|1). When ``model_run_id`` is
+        given, ``model_run_id`` and ``predicted_at`` (UTC ISO timestamp) are
+        appended, mirroring the BigQuery predictions table.
         """
         root = Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
         root.mkdir(parents=True, exist_ok=True)
-        output = identifiers[_IDENTIFIER_COLS].reset_index(drop=True)
-        output["prediction"] = list(predictions)
-        output.to_csv(root / "predictions.csv", index=False)
+        build_predictions_frame(predictions, identifiers, model_run_id).to_csv(
+            root / "predictions.csv", index=False
+        )
 
 
 class LocalArtifactStore:
@@ -99,3 +107,4 @@ class LocalArtifactStore:
                 raise FileNotFoundError(msg)
             run_id = latest.read_text().strip()
         model._model = joblib.load(self._root() / run_id / "model.joblib")
+        model._run_id = run_id
