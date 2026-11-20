@@ -336,4 +336,102 @@ Client ──► challenge-api (Cloud Run service, challenge-sa)
 
 ## Part VI: Infrastructure and CI/CD
 
-This part is not described in this document yet. The workflow files `.github/workflows/ci.yml` and `.github/workflows/cd.yml` have uncommitted changes. Infrastructure for Part VI is covered in [Part II](#part-ii-data-infrastructure) and in the Part III to V sections, which describe the Cloud Run jobs and the API image builds.
+**Written for:** reviewers of the challenge who want to see how code moves from a feature branch to production.
+
+The project uses a simplified GitFlow. `develop` is the integration branch and deploys to a staging GCP project. `main` holds official releases and deploys to the production GCP project. Infrastructure for the data layer, jobs and API is covered in [Part II](#part-ii-data-infrastructure) and in Parts III to V.
+
+### Branches
+
+| Branch | Purpose | Merges into | Deploys to |
+|---|---|---|---|
+| `main` | Official releases only. Protected. | none | Production: `latam-mle-challenge-515301` |
+| `develop` | Integration branch. Protected. | `main`, through a release PR | Staging: `latam-mle-challenge-staging` |
+| `feature/*`, `fix/*`, `chore/*` | Short-lived work branches, cut from `develop`. | `develop`, through a PR | none |
+| `hotfix/*` | Urgent production fix, cut from `main`. | `main`, then back into `develop` | Production |
+
+Development branches are never deleted. Automatic deletion of merged branches is turned off.
+
+### Flow
+
+```mermaid
+flowchart LR
+    f["feature/*"] -- "PR + CI" --> d["develop"]
+    d -- "push: CD" --> s[("Staging<br/>latam-mle-challenge-staging")]
+    d -- "release PR + CI" --> m["main"]
+    m -- "push: CD (approval)" --> p[("Production<br/>latam-mle-challenge-515301")]
+```
+
+### Branch protection
+
+`infra/branch-protection.sh` applies the rules with `gh`. Running it again replaces the existing rules.
+
+| Rule | `main` | `develop` |
+|---|---|---|
+| Changes go through a PR | Yes | Yes |
+| Approving reviews required | 1 | 0 |
+| Required checks: `lint`, `test` (branch up to date) | Yes | Yes |
+| Conversations resolved before merge | Yes | Yes |
+| Force pushes and branch deletion | Blocked | Blocked |
+
+Administrators are not forced to follow the rules. Linear history is not required on `main`, because squash merges of release PRs would make `develop` diverge from `main`. Approvals count only from people with write access.
+
+### CI
+
+`.github/workflows/ci.yml` runs on pull requests to `develop` and `main`. CD also calls it. It runs in `local` mode, so it needs no GCP credentials.
+
+- **`lint`:** `ruff check` and `ruff format --check`.
+- **`test`:** `make model-test`, `make pipelines-test` and `make api-test`. The coverage reports are uploaded as a build artifact.
+- A new push to the same PR cancels the run in progress.
+
+### CD
+
+`.github/workflows/cd.yml` runs on every push to `develop` or `main`. A GitHub Environment holds the settings for each target.
+
+| Branch | GitHub Environment | GCP project | Approval |
+|---|---|---|---|
+| `develop` | `staging` | `latam-mle-challenge-staging` | none |
+| `main` | `production` | `latam-mle-challenge-515301` | required reviewer on the environment |
+
+Steps:
+
+1. Run CI again on the pushed commit.
+2. Build the `api`, `training` and `serving` images. Tag each with the commit SHA and `latest`. Push them to the Artifact Registry repository `challenge`.
+3. Update the Cloud Run jobs `challenge-training` and `challenge-serving` to the SHA-tagged images.
+4. Deploy the `challenge-api` service with the SHA-tagged image.
+5. Call `/health` on the deployed API, with retries.
+6. On `develop` only, run `make stress-test` against the staging URL (100 users, 60 s) and upload the report.
+
+The deploy updates only the image. Environment variables, CPU, memory and scaling stay as `infra/bootstrap.sh` set them. Resource names come from `config/base.yaml`, so both projects use the same names. Runs on the same branch queue and do not cancel each other.
+
+### Authentication
+
+CD uses Workload Identity Federation, so there are no service-account keys. `infra/wif.sh` sets it up once per project:
+
+```sh
+PROJECT_ID=latam-mle-challenge-staging BRANCH=develop GH_ENVIRONMENT=staging ./infra/wif.sh
+PROJECT_ID=latam-mle-challenge-515301  BRANCH=main    GH_ENVIRONMENT=production ./infra/wif.sh
+```
+
+- **Provider:** a Workload Identity pool `github` and an OIDC provider `github-actions`. The provider accepts tokens only from this repository and only from the branch given in `BRANCH`. A run from `develop` cannot deploy to production.
+- **Deployer account:** `github-deployer`, separate from the runtime account `challenge-sa`. It has `run.admin` and `artifactregistry.writer` on the project, and `serviceAccountUser` on `challenge-sa`.
+- **Environment variables:** with `GH_ENVIRONMENT` set, the script creates `GCP_PROJECT_ID`, `GCP_REGION`, `WIF_PROVIDER` and `WIF_SERVICE_ACCOUNT` on that GitHub Environment.
+
+### Setting up a project
+
+1. Run `PROJECT_ID=<project> ./infra/bootstrap.sh`. It creates the jobs and the API service that CD updates.
+2. Run `infra/wif.sh` as shown above.
+3. Add a required reviewer to the `production` environment.
+4. Run `./infra/branch-protection.sh` once for the repository.
+
+### Releases
+
+1. Open a PR from a feature branch to `develop`. CI must pass. After the merge, CD deploys to staging.
+2. Open a release PR from `develop` to `main`. CI must pass and one reviewer must approve.
+3. After the merge, CD waits for approval on the `production` environment, then deploys.
+4. For a hotfix, branch from `main`, merge the fix into `main`, then merge `main` back into `develop`.
+
+### Trade-offs
+
+- The stress test runs only on staging. Running 100 users against production on every release adds load and cost for little extra evidence.
+- Both images and jobs are rebuilt on every push, even when only one changed. This keeps staging and production consistent at the cost of build time. The Docker layer cache reduces it.
+- The API is public in both projects (see the authentication trade-off in [Part V](#part-v-pipeline-control-api)).
