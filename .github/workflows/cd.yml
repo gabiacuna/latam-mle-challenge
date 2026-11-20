@@ -1,0 +1,98 @@
+name: CD
+
+# develop -> staging project, main -> production project.
+# Each GitHub Environment (staging, production) must define these variables:
+#   GCP_PROJECT_ID, GCP_REGION, WIF_PROVIDER, WIF_SERVICE_ACCOUNT
+on:
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: cd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Read resource names from config/base.yaml
+        run: |
+          {
+            echo "REPO=$(yq -r .artifact_registry_repo config/base.yaml)"
+            echo "API_SERVICE=$(yq -r .api_service config/base.yaml)"
+            echo "JOB_TRAIN=$(yq -r .cloud_run.training_job config/base.yaml)"
+            echo "JOB_SERVE=$(yq -r .cloud_run.serving_job config/base.yaml)"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push images
+        run: |
+          for svc in api training serving; do
+            image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${svc}"
+            docker buildx build -f "Dockerfile.${svc}" \
+              -t "${image}:${GITHUB_SHA}" -t "${image}:latest" \
+              --cache-from "type=gha,scope=${svc}" --cache-to "type=gha,scope=${svc},mode=max" \
+              --push .
+          done
+
+      - name: Deploy Cloud Run jobs
+        run: |
+          for pair in "training:${JOB_TRAIN}" "serving:${JOB_SERVE}"; do
+            svc="${pair%%:*}"; job="${pair##*:}"
+            gcloud run jobs update "${job}" --project "${PROJECT_ID}" --region "${REGION}" \
+              --image "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${svc}:${GITHUB_SHA}"
+          done
+
+      - name: Deploy Cloud Run API
+        run: |
+          gcloud run deploy "${API_SERVICE}" --project "${PROJECT_ID}" --region "${REGION}" \
+            --image "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/api:${GITHUB_SHA}"
+          url="$(gcloud run services describe "${API_SERVICE}" --project "${PROJECT_ID}" \
+            --region "${REGION}" --format 'value(status.url)')"
+          echo "API_URL=${url}" >> "$GITHUB_ENV"
+
+      - name: Smoke test
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors "${API_URL}/health"
+
+      - uses: astral-sh/setup-uv@v5
+        if: github.ref_name == 'develop'
+
+      - name: Stress test (staging only)
+        if: github.ref_name == 'develop'
+        run: |
+          uv sync --extra test
+          make stress-test STRESS_URL="${API_URL}"
+
+      - uses: actions/upload-artifact@v4
+        if: always() && github.ref_name == 'develop'
+        with:
+          name: stress-report
+          path: reports/stress-test.html
+          if-no-files-found: ignore

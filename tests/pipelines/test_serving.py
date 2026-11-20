@@ -51,10 +51,16 @@ def test_main_gcp_branch_uses_gcs_csv_reader():
     mock_reader = MagicMock(spec=GCSCSVClient)
     mock_reader.read.return_value = _fake_flight_data()
 
+    def setup_model(model):
+        """Set up mock model for predict."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0, 1, 0]
+        model._model = mock_model
+
     with (
         patch("challenge.serving.get_settings", return_value=_fake_settings("gcp")),
         patch("challenge.connectors.gcs.GCSCSVClient", return_value=mock_reader),
-        patch("challenge.serving.step_load_model"),
+        patch("challenge.serving.step_load_model", side_effect=setup_model),
     ):
         main()
 
@@ -71,10 +77,16 @@ def test_main_local_branch_uses_local_csv_reader():
     mock_reader = MagicMock(spec=LocalCSVClient)
     mock_reader.read.return_value = _fake_flight_data()
 
+    def setup_model(model):
+        """Set up mock model for predict."""
+        mock_model = MagicMock()
+        mock_model.predict.return_value = [0]
+        model._model = mock_model
+
     with (
         patch("challenge.serving.get_settings", return_value=_fake_settings("local")),
         patch("challenge.serving.LocalCSVClient", return_value=mock_reader),
-        patch("challenge.serving.step_load_model"),
+        patch("challenge.serving.step_load_model", side_effect=setup_model),
     ):
         main()
 
