@@ -3,6 +3,12 @@
 project_id: "latam-mle-challenge-515301"
 default_region: us-central1
 service_account_id: challenge-sa
+artifact_registry_repo: challenge
+cloud_run:
+  training_job: challenge-training
+  cpu: "2"
+  memory: 2Gi
+  timeout: 600s
 bucket_suffixes:
   input: input
   artifacts: artifacts

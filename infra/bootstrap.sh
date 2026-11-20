@@ -31,6 +31,9 @@ OBJ_TRAIN="$(cfg .objects.training.path)"
 OBJ_SERVE="$(cfg .objects.serving.path)"
 LOCAL_TRAIN="${ROOT}/$(cfg .objects.training.local)"
 LOCAL_SERVE="${ROOT}/$(cfg .objects.serving.local)"
+REPO="$(cfg .artifact_registry_repo)"
+TRAIN_JOB="$(cfg .cloud_run.training_job)"
+IMAGE_TRAIN="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/training:latest"
 LABELS="$(yq -r '.labels | to_entries | map(.key + "=" + .value) | join(",")' "${CFG}")"
 DATASET_LABEL_ARGS=()
 while IFS= read -r kv; do DATASET_LABEL_ARGS+=(--label "${kv}"); done \
@@ -38,7 +41,7 @@ while IFS= read -r kv; do DATASET_LABEL_ARGS+=(--label "${kv}"); done \
 
 echo ">> Enabling APIs"
 gcloud services enable storage.googleapis.com bigquery.googleapis.com run.googleapis.com \
-  artifactregistry.googleapis.com iam.googleapis.com --project "${PROJECT_ID}"
+  artifactregistry.googleapis.com iam.googleapis.com cloudbuild.googleapis.com --project "${PROJECT_ID}"
 
 echo ">> Service account ${SA_EMAIL}"
 gcloud iam service-accounts describe "${SA_EMAIL}" --project "${PROJECT_ID}" >/dev/null 2>&1 \
@@ -68,7 +71,7 @@ for b in "${BUCKET_INPUT}" "${BUCKET_ARTIFACTS}"; do
   gcloud storage buckets add-iam-policy-binding "gs://${b}" \
     --member "serviceAccount:${SA_EMAIL}" --role roles/storage.objectAdmin >/dev/null
 done
-for role in roles/bigquery.jobUser roles/run.developer roles/run.invoker; do
+for role in roles/bigquery.jobUser roles/run.developer roles/run.invoker roles/artifactregistry.reader; do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member "serviceAccount:${SA_EMAIL}" --role "${role}" --condition=None >/dev/null
 done
@@ -101,6 +104,37 @@ bq --project_id "${PROJECT_ID}" --location "${REGION}" load --source_format=CSV 
 bq --project_id "${PROJECT_ID}" --location "${REGION}" load --source_format=CSV \
   --skip_leading_rows=1 --replace \
   "${DATASET}.${T_SERVING}" "gs://${BUCKET_INPUT}/${OBJ_SERVE}"
+
+echo ">> Cloud Build permissions for ${SA_EMAIL}"
+for role in roles/storage.objectViewer roles/artifactregistry.writer roles/logging.logWriter roles/cloudbuild.builds.builder; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member "serviceAccount:${SA_EMAIL}" --role "${role}" --condition=None >/dev/null
+done
+
+echo ">> Artifact Registry and training image"
+gcloud artifacts repositories describe "${REPO}" --location "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1 \
+  || gcloud artifacts repositories create "${REPO}" --repository-format docker \
+    --location "${REGION}" --project "${PROJECT_ID}" --labels "${LABELS}"
+BUILD_CFG="$(mktemp)"
+cat > "${BUILD_CFG}" <<YAML
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.training", "-t", "${IMAGE_TRAIN}", "."]
+images: ["${IMAGE_TRAIN}"]
+options:
+  logging: CLOUD_LOGGING_ONLY
+YAML
+gcloud builds submit "${ROOT}" --config "${BUILD_CFG}" --project "${PROJECT_ID}" \
+  --service-account "projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
+rm -f "${BUILD_CFG}"
+
+echo ">> Cloud Run job ${TRAIN_JOB}"
+# 'deploy' creates or updates, so re-runs are idempotent.
+gcloud run jobs deploy "${TRAIN_JOB}" --image "${IMAGE_TRAIN}" --region "${REGION}" \
+  --project "${PROJECT_ID}" --service-account "${SA_EMAIL}" \
+  --cpu "$(cfg .cloud_run.cpu)" --memory "$(cfg .cloud_run.memory)" \
+  --task-timeout "$(cfg .cloud_run.timeout)" --max-retries 0 --labels "${LABELS}" \
+  --set-env-vars "DEPLOYMENT_MODE=gcp,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},GCP_BUCKET_INPUT=${BUCKET_INPUT},GCP_BUCKET_ARTIFACTS=${BUCKET_ARTIFACTS},BQ_DATASET=${DATASET},BQ_RAW_TABLE=${T_RAW},BQ_SERVING_TABLE=${T_SERVING},BQ_PREDICTIONS_TABLE=${T_PRED}"
 
 cat <<OUT
 
