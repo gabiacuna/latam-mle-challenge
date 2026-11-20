@@ -79,7 +79,9 @@ class TestModel(unittest.TestCase):  # noqa: D101
 
     def test_model_predict(self) -> None:
         """Test predict returns correct format and length."""
-        features = self.model.preprocess(data=self.data)
+        features, target = self.model.preprocess(data=self.data, target_column="delay")
+
+        self.model.fit(features=features, target=target)
 
         predicted_targets = self.model.predict(features=features)
 
