@@ -114,26 +114,33 @@ gcloud artifacts repositories describe "${REPO}" --location "${REGION}" --projec
   || gcloud artifacts repositories create "${REPO}" --repository-format docker \
     --location "${REGION}" --project "${PROJECT_ID}" --labels "${LABELS}"
 
-# Both jobs share one runtime env; they differ only in image and job name.
+# All three workloads share one runtime env; they differ only in image and job/service name.
 RUN_ENV="DEPLOYMENT_MODE=gcp,GCP_PROJECT_ID=${PROJECT_ID},GCP_REGION=${REGION},GCP_BUCKET_INPUT=${BUCKET_INPUT},GCP_BUCKET_ARTIFACTS=${BUCKET_ARTIFACTS},BQ_DATASET=${DATASET},BQ_RAW_TABLE=${T_RAW},BQ_SERVING_TABLE=${T_SERVING},BQ_PREDICTIONS_TABLE=${T_PRED}"
+JOB_TRAIN="$(cfg .cloud_run.training_job)"
+JOB_SERVE="$(cfg .cloud_run.serving_job)"
+API_SERVICE="$(cfg .api_service)"
+
+build_image() {
+  local svc="$1" image="$2" build_cfg
+  echo ">> Building ${svc} image"
+  build_cfg="$(mktemp)"
+  cat > "${build_cfg}" <<YAML
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.${svc}", "-t", "${image}", "."]
+images: ["${image}"]
+options:
+  logging: CLOUD_LOGGING_ONLY
+YAML
+  gcloud builds submit "${ROOT}" --config "${build_cfg}" --project "${PROJECT_ID}" \
+    --service-account "projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
+  rm -f "${build_cfg}"
+}
 
 for svc in training serving; do
   IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${svc}:latest"
   JOB="$(cfg ".cloud_run.${svc}_job")"
-
-  echo ">> Building ${svc} image"
-  BUILD_CFG="$(mktemp)"
-  cat > "${BUILD_CFG}" <<YAML
-steps:
-  - name: gcr.io/cloud-builders/docker
-    args: ["build", "-f", "Dockerfile.${svc}", "-t", "${IMAGE}", "."]
-images: ["${IMAGE}"]
-options:
-  logging: CLOUD_LOGGING_ONLY
-YAML
-  gcloud builds submit "${ROOT}" --config "${BUILD_CFG}" --project "${PROJECT_ID}" \
-    --service-account "projects/${PROJECT_ID}/serviceAccounts/${SA_EMAIL}"
-  rm -f "${BUILD_CFG}"
+  build_image "${svc}" "${IMAGE}"
 
   echo ">> Cloud Run job ${JOB}"
   # 'deploy' creates or updates, so re-runs are idempotent.
@@ -143,6 +150,22 @@ YAML
     --task-timeout "$(cfg .cloud_run.timeout)" --max-retries 0 --labels "${LABELS}" \
     --set-env-vars "${RUN_ENV}"
 done
+
+# The API triggers the jobs above, so it gets their names as env vars.
+# Public on purpose (evaluators call it directly); see docs/challenge.md, Part V trade-offs.
+API_IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/api:latest"
+build_image api "${API_IMAGE}"
+
+echo ">> Cloud Run service ${API_SERVICE}"
+gcloud run deploy "${API_SERVICE}" --image "${API_IMAGE}" --region "${REGION}" \
+  --project "${PROJECT_ID}" --service-account "${SA_EMAIL}" \
+  --cpu 1 --memory 1Gi --timeout 900 \
+  --min-instances 1 --max-instances 3 --concurrency 80 \
+  --allow-unauthenticated --labels "${LABELS}" \
+  --set-env-vars "${RUN_ENV},CLOUD_RUN_TRAINING_JOB=${JOB_TRAIN},CLOUD_RUN_SERVING_JOB=${JOB_SERVE}"
+API_URL="$(gcloud run services describe "${API_SERVICE}" --region "${REGION}" \
+  --project "${PROJECT_ID}" --format 'value(status.url)')"
+echo "API URL: ${API_URL}"
 
 cat <<OUT
 
@@ -155,4 +178,5 @@ export BQ_DATASET=${DATASET}
 export BQ_RAW_TABLE=${T_RAW}
 export BQ_SERVING_TABLE=${T_SERVING}
 export BQ_PREDICTIONS_TABLE=${T_PRED}
+export API_URL=${API_URL}
 OUT

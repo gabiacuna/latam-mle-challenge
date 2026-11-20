@@ -4,6 +4,7 @@ project_id: "latam-mle-challenge-515301"
 default_region: us-central1
 service_account_id: challenge-sa
 artifact_registry_repo: challenge
+api_service: challenge-api
 cloud_run:
   training_job: challenge-training
   serving_job: challenge-serving
