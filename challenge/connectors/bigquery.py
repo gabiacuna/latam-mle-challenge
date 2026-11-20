@@ -25,14 +25,24 @@ class BigQueryClient:
         ``Settings.gcp_project_id``.
     """
 
+    _SQL_PATH = Path(__file__).resolve().parents[2] / "assets" / "load_data.sql"
 
     def __init__(self, _client: bigquery.Client | None = None) -> None:
         """Initialise with optional injected BQ client."""
-        ...
+        if _client is None:
+            _client = bigquery.Client(project=get_settings().gcp_project_id)
+        self._client = _client
 
     def read(self) -> pd.DataFrame:
         """Execute ``assets/load_data.sql`` against BigQuery and return results."""
-        ...
+        settings = get_settings()
+        template = self._SQL_PATH.read_text()
+        query = template.format(
+            project=settings.gcp_project_id,
+            dataset=settings.bq_dataset,
+            raw_table=settings.bq_raw_table,
+        )
+        return self._client.query(query).to_dataframe()
 
     def write(self, predictions: list[int], identifiers: pd.DataFrame) -> None:
         """Insert predictions into the configured BigQuery predictions table.
@@ -41,4 +51,15 @@ class BigQueryClient:
         predictions) and ``prediction`` (0 or 1).  Uses ``WRITE_TRUNCATE`` to
         replace the table on each serving run.
         """
-        ...
+        settings = get_settings()
+        table_id = (
+            f"{settings.gcp_project_id}.{settings.bq_dataset}."
+            f"{settings.bq_predictions_table}"
+        )
+        output = identifiers[["OPERA", "TIPOVUELO", "MES"]].reset_index(drop=True)
+        output["prediction"] = list(predictions)
+        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+        job = self._client.load_table_from_dataframe(
+            output, table_id, job_config=job_config
+        )
+        job.result()
