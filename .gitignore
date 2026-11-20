@@ -21,3 +21,9 @@ secrets/
 insecure_report.txt
 reports
 artifacts/
+
+# Terraform (local state) and shared infra schemas
+*.tfstate*
+.terraform/
+*.tfvars
+!config/schemas/*.json

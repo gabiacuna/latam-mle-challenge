@@ -1,0 +1,92 @@
+[
+  {
+    "name": "Fecha-I",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Vlo-I",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Ori-I",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Des-I",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Emp-I",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Fecha-O",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Vlo-O",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Ori-O",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Des-O",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "Emp-O",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "DIA",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "MES",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "AÑO",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "DIANOM",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "TIPOVUELO",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "OPERA",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "SIGLAORI",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "SIGLADES",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  }
+]
