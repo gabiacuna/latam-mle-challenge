@@ -10,7 +10,7 @@ import pytest
 from challenge.config import clear_settings_cache
 from challenge.connectors.gcs import GCSArtifactStore, GCSCSVClient
 from challenge.connectors.local import LocalArtifactStore
-from challenge.connectors.protocols import ArtifactStore, DataReader
+from challenge.connectors.protocols import ArtifactStore
 from challenge.model import DelayModel
 
 
@@ -72,7 +72,7 @@ def test_load_raises_when_latest_txt_missing(tmp_path, monkeypatch):
     """FileNotFoundError is raised when latest.txt is absent and run_id is None."""
     monkeypatch.setenv("ARTIFACTS_DIR", str(tmp_path))
     model = DelayModel()
-    with pytest.raises(FileNotFoundError, match="latest.txt"):
+    with pytest.raises(FileNotFoundError, match=r"latest\.txt"):
         LocalArtifactStore().load(model, None)
 
 
@@ -212,7 +212,7 @@ def test_gcs_load_raises_when_latest_txt_missing(mock_bucket_name):
     mock_bucket.blob.return_value = missing_blob
 
     with patch("google.cloud.storage.Client", mock_client_cls):  # noqa: SIM117
-        with pytest.raises(FileNotFoundError, match="latest.txt"):  # noqa: RUF043
+        with pytest.raises(FileNotFoundError, match=r"latest\.txt"):
             GCSArtifactStore().load(DelayModel(), None)
 
 
