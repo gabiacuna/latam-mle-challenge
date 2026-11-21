@@ -43,4 +43,3 @@ def test_settings_gcp_mode_raises_for_missing_bucket_artifacts():
             bq_raw_table="raw_flights",
             bq_predictions_table="predictions",
         )
-

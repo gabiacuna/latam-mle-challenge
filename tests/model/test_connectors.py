@@ -86,7 +86,9 @@ def test_local_csv_reader_write_creates_dir(tmp_path, monkeypatch):
     """write() creates the artifacts directory if it does not exist."""
     new_dir = tmp_path / "new_artifacts"
     monkeypatch.setenv("ARTIFACTS_DIR", str(new_dir))
-    identifiers = pd.DataFrame({"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [1]})
+    identifiers = pd.DataFrame(
+        {"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [1]}
+    )
     LocalCSVClient().write([1], identifiers)
     assert (new_dir / "predictions.csv").exists()
 
@@ -148,7 +150,11 @@ def test_bigquery_reader_write_calls_load_table(monkeypatch):
 
     reader = BigQueryClient(_client=mock_client)
     identifiers = pd.DataFrame(
-        {"OPERA": ["Grupo LATAM", "Sky Airline"], "TIPOVUELO": ["I", "N"], "MES": [1, 2]}
+        {
+            "OPERA": ["Grupo LATAM", "Sky Airline"],
+            "TIPOVUELO": ["I", "N"],
+            "MES": [1, 2],
+        }
     )
     reader.write([0, 1], identifiers)
 
@@ -163,8 +169,8 @@ def test_bigquery_reader_write_calls_load_table(monkeypatch):
 def test_bigquery_writer_load_job_failure_propagates(monkeypatch):
     """write() propagates RuntimeError when the BigQuery load job fails."""
     mock_client = MagicMock()
-    mock_client.load_table_from_dataframe.return_value.result.side_effect = RuntimeError(
-        "BQ load failed"
+    mock_client.load_table_from_dataframe.return_value.result.side_effect = (
+        RuntimeError("BQ load failed")
     )
 
     monkeypatch.setenv("GCP_PROJECT_ID", "p")
@@ -173,7 +179,9 @@ def test_bigquery_writer_load_job_failure_propagates(monkeypatch):
     clear_settings_cache()
 
     reader = BigQueryClient(_client=mock_client)
-    identifiers = pd.DataFrame({"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [1]})
+    identifiers = pd.DataFrame(
+        {"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [1]}
+    )
 
     with pytest.raises(RuntimeError, match="BQ load failed"):
         reader.write([0], identifiers)

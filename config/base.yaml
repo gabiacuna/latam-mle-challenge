@@ -1,0 +1,28 @@
+# Non-secret infrastructure structure shared by infra/bootstrap.sh and infra/terraform/main.tf.
+# project_id: set it here; the PROJECT_ID env var / Terraform -var project_id override it.
+project_id: "latam-mle-challenge-515301"
+default_region: us-central1
+service_account_id: challenge-sa
+artifact_registry_repo: challenge
+api_service: challenge-api
+cloud_run:
+  training_job: challenge-training
+  serving_job: challenge-serving
+  cpu: "2"
+  memory: 2Gi
+  timeout: 600s
+bucket_suffixes:
+  input: input
+  artifacts: artifacts
+objects:
+  training: { local: data/data.csv, path: training/data.csv }
+  serving: { local: data/serving_input.csv, path: serving/serving_input.csv }
+bigquery:
+  dataset: flights
+  tables:
+    raw: raw_flights
+    serving: serving_input
+    predictions: predictions
+labels:
+  app: latam-mle-challenge
+  managed_by: infra

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "OPERA",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "TIPOVUELO",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "MES",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "prediction",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "model_run_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "predicted_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

@@ -14,20 +14,28 @@ from challenge import app
 
 
 class TestHealth(unittest.TestCase):
-    def setUp(self):
+    """Tests for GET /health endpoint."""
+
+    def setUp(self) -> None:
+        """Initialize test client."""
         self.client = TestClient(app, raise_server_exceptions=True)
 
-    def test_health_returns_ok(self):
+    def test_health_returns_ok(self) -> None:
+        """Test that /health returns 200 with status ok."""
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
 
 
 class TestPipelineTrain(unittest.TestCase):
-    def setUp(self):
+    """Tests for POST /pipeline/train endpoint."""
+
+    def setUp(self) -> None:
+        """Initialize test client."""
         self.client = TestClient(app, raise_server_exceptions=True)
 
-    def _mock_bq_count(self, n: int):
+    def _mock_bq_count(self, n: int) -> MagicMock:
+        """Create a mock BigQuery client that returns n rows."""
         mock_row = MagicMock()
         mock_row.__getitem__ = lambda self, key: n if key == "n" else None
         mock_result = MagicMock()
@@ -36,26 +44,34 @@ class TestPipelineTrain(unittest.TestCase):
         mock_client.query.return_value.result.return_value = mock_result
         return mock_client
 
-    def test_train_returns_422_when_raw_flights_empty(self):
-        bq_mock = self._mock_bq_count(0)
+    def test_train_returns_422_when_raw_flights_empty(self) -> None:
+        """Test that /pipeline/train returns 422 when raw_flights table is empty."""
         with patch("challenge.api.api._check_raw_flights", return_value=0):
             response = self.client.post("/pipeline/train")
         self.assertEqual(response.status_code, 422)
         self.assertIn("empty", response.json()["detail"])
 
-    def test_train_returns_500_on_pipeline_failure(self):
-        with patch("challenge.api.api._check_raw_flights", return_value=100), \
-             patch("challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")):
+    def test_train_returns_500_on_pipeline_failure(self) -> None:
+        """Test that /pipeline/train returns 500 when training pipeline fails."""
+        with (
+            patch("challenge.api.api._check_raw_flights", return_value=100),
+            patch(
+                "challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")
+            ),
+        ):
             response = self.client.post("/pipeline/train")
         self.assertEqual(response.status_code, 500)
         self.assertIn("failed", response.json()["detail"]["details"])
 
-    def test_train_returns_200_on_success(self):
+    def test_train_returns_200_on_success(self) -> None:
+        """Test that /pipeline/train returns 200 with model metadata on success."""
         mock_job = MagicMock()
         mock_job.name = "projects/test/locations/us-central1/pipelineJobs/123"
 
-        with patch("challenge.api.api._check_raw_flights", return_value=1000), \
-             patch("challenge.api.api._submit_and_wait", return_value=mock_job):
+        with (
+            patch("challenge.api.api._check_raw_flights", return_value=1000),
+            patch("challenge.api.api._submit_and_wait", return_value=mock_job),
+        ):
             response = self.client.post("/pipeline/train")
 
         self.assertEqual(response.status_code, 200)
@@ -66,35 +82,54 @@ class TestPipelineTrain(unittest.TestCase):
 
 
 class TestPipelinePredict(unittest.TestCase):
-    def setUp(self):
+    """Tests for POST /pipeline/predict endpoint."""
+
+    def setUp(self) -> None:
+        """Initialize test client."""
         self.client = TestClient(app, raise_server_exceptions=True)
 
-    def test_predict_returns_422_when_no_model(self):
+    def test_predict_returns_422_when_no_model(self) -> None:
+        """Test that /pipeline/predict returns 422 when no trained model exists."""
         with patch("challenge.api.api._check_model_exists", return_value=False):
             response = self.client.post("/pipeline/predict")
         self.assertEqual(response.status_code, 422)
         self.assertIn("no trained model", response.json()["detail"])
 
-    def test_predict_returns_500_on_pipeline_failure(self):
-        with patch("challenge.api.api._check_model_exists", return_value=True), \
-             patch("challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")):
+    def test_predict_returns_500_on_pipeline_failure(self) -> None:
+        """Test that /pipeline/predict returns 500 when serving pipeline fails."""
+        with (
+            patch("challenge.api.api._check_model_exists", return_value=True),
+            patch(
+                "challenge.api.api._submit_and_wait", side_effect=RuntimeError("failed")
+            ),
+        ):
             response = self.client.post("/pipeline/predict")
         self.assertEqual(response.status_code, 500)
         self.assertIn("failed", response.json()["detail"]["details"])
 
-    def test_predict_returns_200_on_success(self):
+    def test_predict_returns_200_on_success(self) -> None:
+        """Test that /pipeline/predict returns 200 with predictions on success."""
         mock_job = MagicMock()
         mock_job.name = "projects/test/locations/us-central1/pipelineJobs/456"
         mock_predictions = {
             "total_predictions": 68206,
             "predictions": [
-                {"OPERA": "Grupo LATAM", "TIPOVUELO": "I", "MES": 6, "predicted_delay": 0}
+                {
+                    "OPERA": "Grupo LATAM",
+                    "TIPOVUELO": "I",
+                    "MES": 6,
+                    "predicted_delay": 0,
+                }
             ],
         }
 
-        with patch("challenge.api.api._check_model_exists", return_value=True), \
-             patch("challenge.api.api._submit_and_wait", return_value=mock_job), \
-             patch("challenge.api.api._query_predictions", return_value=mock_predictions):
+        with (
+            patch("challenge.api.api._check_model_exists", return_value=True),
+            patch("challenge.api.api._submit_and_wait", return_value=mock_job),
+            patch(
+                "challenge.api.api._query_predictions", return_value=mock_predictions
+            ),
+        ):
             response = self.client.post("/pipeline/predict")
 
         self.assertEqual(response.status_code, 200)
@@ -104,17 +139,21 @@ class TestPipelinePredict(unittest.TestCase):
 
 
 class TestPredictResults(unittest.TestCase):
-    def setUp(self):
+    """Tests for GET /pipeline/predict/results endpoint."""
+
+    def setUp(self) -> None:
+        """Initialize test client."""
         self.client = TestClient(app, raise_server_exceptions=True)
 
-    def test_results_returns_200_with_empty_predictions(self):
+    def test_results_returns_200_with_empty_predictions(self) -> None:
+        """Test that /pipeline/predict/results returns 200 with empty predictions."""
         mock_result = {"total_predictions": 0, "predictions": []}
         with patch("challenge.api.api._query_predictions", return_value=mock_result):
             response = self.client.get("/pipeline/predict/results")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["total_predictions"], 0)
 
-    def test_results_respects_pagination(self):
+    def test_results_respects_pagination(self) -> None:
         """GET /results echoes page and page_size in the response body."""
         mock_result = {
             "total_predictions": 100,
@@ -128,7 +167,7 @@ class TestPredictResults(unittest.TestCase):
                 for i in range(5)
             ],
         }
-        with patch("challenge.api.api._query_predictions", return_value=mock_result) as mock_q:
+        with patch("challenge.api.api._query_predictions", return_value=mock_result):
             response = self.client.get("/pipeline/predict/results?page=2&page_size=5")
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -179,7 +218,9 @@ class TestPredictResultsFilters(unittest.TestCase):
 
     def test_results_invalid_mes_returns_422(self):
         """Non-integer mes value returns 422 with an informative detail message."""
-        with patch("challenge.api.api._query_predictions", return_value=self._empty_result):
+        with patch(
+            "challenge.api.api._query_predictions", return_value=self._empty_result
+        ):
             response = self.client.get("/pipeline/predict/results?mes=not_a_number")
         self.assertEqual(response.status_code, 422)
         self.assertIn("mes must be", response.json()["detail"])

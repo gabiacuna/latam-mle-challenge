@@ -10,7 +10,7 @@ import pytest
 from challenge.config import clear_settings_cache
 from challenge.connectors.gcs import GCSArtifactStore, GCSCSVClient
 from challenge.connectors.local import LocalArtifactStore
-from challenge.connectors.protocols import ArtifactStore, DataReader
+from challenge.connectors.protocols import ArtifactStore
 from challenge.model import DelayModel
 
 
@@ -72,7 +72,7 @@ def test_load_raises_when_latest_txt_missing(tmp_path, monkeypatch):
     """FileNotFoundError is raised when latest.txt is absent and run_id is None."""
     monkeypatch.setenv("ARTIFACTS_DIR", str(tmp_path))
     model = DelayModel()
-    with pytest.raises(FileNotFoundError, match="latest.txt"):
+    with pytest.raises(FileNotFoundError, match=r"latest\.txt"):
         LocalArtifactStore().load(model, None)
 
 
@@ -212,7 +212,7 @@ def test_gcs_load_raises_when_latest_txt_missing(mock_bucket_name):
     mock_bucket.blob.return_value = missing_blob
 
     with patch("google.cloud.storage.Client", mock_client_cls):  # noqa: SIM117
-        with pytest.raises(FileNotFoundError, match="latest.txt"):  # noqa: RUF043
+        with pytest.raises(FileNotFoundError, match=r"latest\.txt"):
             GCSArtifactStore().load(DelayModel(), None)
 
 
@@ -224,7 +224,9 @@ def test_gcs_artifact_store_satisfies_protocol():
 @patch(
     "challenge.connectors.gcs.GCSArtifactStore._bucket_name", return_value="test-bucket"
 )
-def test_gcs_artifact_store_load_raises_when_model_blob_download_fails(mock_bucket_name):
+def test_gcs_artifact_store_load_raises_when_model_blob_download_fails(
+    mock_bucket_name,
+):
     """load() propagates an exception when the model blob download fails."""
     mock_client_cls, mock_bucket = _make_gcs_client_mock()
 
@@ -272,7 +274,9 @@ def test_gcs_csv_client_write_creates_bigquery_client_when_none_injected():
     """write() instantiates a BigQueryClient when no _bq_writer was injected."""
     mock_writer_instance = MagicMock()
     mock_writer_cls = MagicMock(return_value=mock_writer_instance)
-    identifiers = pd.DataFrame({"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [6]})
+    identifiers = pd.DataFrame(
+        {"OPERA": ["Grupo LATAM"], "TIPOVUELO": ["I"], "MES": [6]}
+    )
 
     with patch("challenge.connectors.bigquery.BigQueryClient", mock_writer_cls):
         GCSCSVClient(blob_name="serving_input.csv").write([1], identifiers)

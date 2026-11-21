@@ -1,0 +1,17 @@
+[
+  {
+    "name": "OPERA",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "TIPOVUELO",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "MES",
+    "type": "INT64",
+    "mode": "NULLABLE"
+  }
+]
